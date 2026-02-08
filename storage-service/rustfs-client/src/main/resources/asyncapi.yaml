@@ -1,0 +1,71 @@
+asyncapi: 2.6.0
+info:
+  title: Storage Events
+  version: 1.0.0
+  description: Events emitted by the storage service
+
+channels:
+  storage.events:
+    publish:
+      message:
+        oneOf:
+          - $ref: '#/components/messages/FileCreatedEvent'
+          - $ref: '#/components/messages/FileVirusScannedEvent'
+          - $ref: '#/components/messages/FileDeletedEvent'
+
+components:
+  messages:
+    FileCreatedEvent:
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: FILE_CREATED
+          fileId:
+            type: string
+            format: uuid
+          filename:
+            type: string
+          objectKey:
+            type: string
+          mimeType:
+            type: string
+          size:
+            type: integer
+            format: int64
+          timestamp:
+            type: string
+            format: date-time
+
+    FileVirusScannedEvent:
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: FILE_VIRUS_SCANNED
+          fileId:
+            type: string
+            format: uuid
+          clean:
+            type: boolean
+          timestamp:
+            type: string
+            format: date-time
+
+    FileDeletedEvent:
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: FILE_DELETED
+          fileId:
+            type: string
+            format: uuid
+          objectKey:
+            type: string
+          timestamp:
+            type: string
+            format: date-time

@@ -1,0 +1,28 @@
+version: "3.7"
+services:
+  kong:
+    image: kong:latest
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong.yaml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+
+      # Admin API Configuration
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+
+      # Admin Panel Configuration (Add these)
+      KONG_ADMIN_GUI_LISTEN: 0.0.0.0:8002
+      KONG_ADMIN_GUI_URL: http://localhost:8002
+
+    configs:
+      - source: my_kong_config
+        target: /kong.yaml
+    ports:
+      - "8000:8000" # Proxy Port
+      - "8001:8001" # Admin API Port
+      - "8002:8002" # Admin GUI Port (Manager)
+
+configs:
+  my_kong_config:
+    file: ./kong.yaml

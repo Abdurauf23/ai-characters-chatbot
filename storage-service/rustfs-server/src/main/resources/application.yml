@@ -1,0 +1,30 @@
+quarkus:
+  # HTTP
+  http:
+    port: 8080
+    cors:
+      origins: "/.*/"
+
+  s3:
+    endpoint-override: "http://localhost:9000"
+    path-style-access: true
+    sync-client:
+      type: "url"
+
+# Custom property
+storage:
+  bucket-name: "storage"
+
+# Kafka / Redpanda
+kafka:
+  bootstrap:
+    servers: "localhost:19092"
+
+mp:
+  messaging:
+    outgoing:
+      storage-events-out:
+        connector: "smallrye-kafka"
+        topic: "storage.events"
+        value:
+          serializer: "io.quarkus.kafka.client.serialization.ObjectMapperSerializer"

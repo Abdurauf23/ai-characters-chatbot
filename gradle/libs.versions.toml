@@ -1,0 +1,25 @@
+[versions]
+quarkus = "3.31.2"
+quarkus-amazon = "3.14.1"
+openapi-processor = "2025.1.1"
+spotless = "8.2.1"
+
+[plugins]
+quarkus = { id = "io.quarkus", version.ref = "quarkus" }
+openapi = { id = "io.openapiprocessor.openapi-processor", version.ref = "openapi-processor" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+
+[libraries]
+quarkus-bom = { module = "io.quarkus.platform:quarkus-bom", version.ref = "quarkus" }
+quarkus-amazon-bom = { module = "io.quarkiverse.amazonservices:quarkus-amazon-services-bom", version.ref = "quarkus-amazon" }
+
+# Quarkus extensions
+quarkus-config-yaml = { module = "io.quarkus:quarkus-config-yaml" }
+quarkus-rest-jackson = { module = "io.quarkus:quarkus-rest-jackson", version.ref = "quarkus" }
+quarkus-messaging-kafka = { module = "io.quarkus:quarkus-messaging-kafka", version.ref = "quarkus" }
+quarkus-smallrye-openapi = { module = "io.quarkus:quarkus-smallrye-openapi", version.ref = "quarkus" }
+quarkus-smallrye-fault-tolerance = { module = "io.quarkus:quarkus-smallrye-fault-tolerance", version.ref = "quarkus" }
+
+# Quarkiverse Amazon services
+quarkus-amazon-s3 = { module = "io.quarkiverse.amazonservices:quarkus-amazon-s3" }
+aws-url-connection-client = { module = "software.amazon.awssdk:url-connection-client" }

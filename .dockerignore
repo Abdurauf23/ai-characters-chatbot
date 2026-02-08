@@ -1,0 +1,6 @@
+.gradle
+build
+**/build
+.idea
+*.md
+docker-compose.yml

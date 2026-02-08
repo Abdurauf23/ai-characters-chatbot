@@ -1,0 +1,27 @@
+services:
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: rustfs_container
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      # Use the named volume defined below
+      - rustfs_data:/data
+    environment:
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_SERVER_DOMAINS: example.com
+    command: >
+      --address :9000 
+      --console-enable 
+      --server-domains example.com 
+      --access-key rustfsadmin 
+      --secret-key rustfsadmin 
+      /data
+    restart: unless-stopped
+
+# Define the named volume
+volumes:
+  rustfs_data:
