@@ -1,12 +1,12 @@
 ####
-# Default Dockerfile for storage service (JVM build)
-# For native image build, use Dockerfile.native
+# This Dockerfile builds a JVM-based container image for the storage service.
+# It uses a multi-stage build for optimal image size and security.
 #
-# Build context must be project root (two directories up):
-#   docker build -f storage-service/rustfs-server/Dockerfile .
+# Build with:
+#   docker build -f Dockerfile.jvm -t storage-service:jvm .
 #
-# Or use docker-compose for local development:
-#   docker-compose --profile jvm up
+# Run with:
+#   docker run -i --rm -p 8080:8080 storage-service:jvm
 ####
 
 FROM gradle:8.12-jdk21 AS builder

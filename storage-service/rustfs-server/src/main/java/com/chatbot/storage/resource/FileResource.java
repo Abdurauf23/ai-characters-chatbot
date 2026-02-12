@@ -1,5 +1,7 @@
 package com.chatbot.storage.resource;
 
+import com.chatbot.storage.dto.FileDto;
+import com.chatbot.storage.dto.PresignedUrlDto;
 import com.chatbot.storage.event.FileEvent;
 import com.chatbot.storage.event.StorageEventEmitter;
 import com.chatbot.storage.service.StorageService;
@@ -114,24 +116,7 @@ public class FileResource {
     return FileDto.from(storage.updateTags(fileId, tags));
   }
 
-  // --- DTOs ---
-
-  public record FileDto(
-      UUID id,
-      String filename,
-      long size,
-      String mimeType,
-      String objectKey,
-      OffsetDateTime createdAt) {
-    static FileDto from(FileMeta m) {
-      return new FileDto(
-          m.id(), m.filename(), m.size(), m.mimeType(), m.objectKey(), m.createdAt());
-    }
-  }
-
-  public record PresignedUrlDto(String url, OffsetDateTime expiresAt) {}
-
-  // --- helpers ---
+  // --- Helpers ---
 
   private Map<String, String> parseTags(String json) {
     if (json == null || json.isBlank()) return Map.of();

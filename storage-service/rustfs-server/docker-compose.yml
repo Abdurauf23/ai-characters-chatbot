@@ -1,0 +1,121 @@
+version: '3.8'
+
+services:
+  # S3-compatible storage backend (MinIO for local development)
+  # Can be replaced with RustFS or any other S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    container_name: storage-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO Console UI
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka/Redpanda for event streaming
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    container_name: storage-redpanda
+    command:
+      - redpanda
+      - start
+      - --smp 1
+      - --memory 1G
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:19092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:19092,OUTSIDE://localhost:9092
+    ports:
+      - "9092:9092"   # Kafka API (external)
+      - "19092:19092" # Kafka API (internal)
+      - "8081:8081"   # Schema Registry
+      - "9644:9644"   # Admin API
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Storage Service (JVM version - faster to build for development)
+  storage-service-jvm:
+    build:
+      context: ../..
+      dockerfile: storage-service/rustfs-server/Dockerfile.jvm
+    container_name: storage-service-jvm
+    ports:
+      - "8080:8080"
+    environment:
+      # Override storage endpoint to use containerized MinIO
+      STORAGE_S3_ENDPOINT: "http://minio:9000"
+      STORAGE_S3_ACCESS_KEY_ID: "minioadmin"
+      STORAGE_S3_SECRET_ACCESS_KEY: "minioadmin"
+
+      # Override Kafka endpoint
+      KAFKA_BOOTSTRAP_SERVERS: "redpanda:19092"
+
+      # Quarkus configuration
+      QUARKUS_S3_ENDPOINT_OVERRIDE: "http://minio:9000"
+      QUARKUS_S3_AWS_CREDENTIALS_STATIC_PROVIDER_ACCESS_KEY_ID: "minioadmin"
+      QUARKUS_S3_AWS_CREDENTIALS_STATIC_PROVIDER_SECRET_ACCESS_KEY: "minioadmin"
+    depends_on:
+      minio:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    profiles:
+      - jvm
+
+  # Storage Service (Native version - smaller, faster startup)
+  # Uncomment to use native build instead of JVM
+  storage-service-native:
+    build:
+      context: ../..
+      dockerfile: storage-service/rustfs-server/Dockerfile.native
+    container_name: storage-service-native
+    ports:
+      - "8080:8080"
+    environment:
+      STORAGE_S3_ENDPOINT: "http://minio:9000"
+      STORAGE_S3_ACCESS_KEY_ID: "minioadmin"
+      STORAGE_S3_SECRET_ACCESS_KEY: "minioadmin"
+      KAFKA_BOOTSTRAP_SERVERS: "redpanda:19092"
+      QUARKUS_S3_ENDPOINT_OVERRIDE: "http://minio:9000"
+      QUARKUS_S3_AWS_CREDENTIALS_STATIC_PROVIDER_ACCESS_KEY_ID: "minioadmin"
+      QUARKUS_S3_AWS_CREDENTIALS_STATIC_PROVIDER_SECRET_ACCESS_KEY: "minioadmin"
+    depends_on:
+      minio:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    profiles:
+      - native
+
+volumes:
+  minio-data:
+    driver: local
+
+# Usage:
+#
+# Start infrastructure + JVM version (default):
+#   docker-compose --profile jvm up
+#
+# Start infrastructure + Native version:
+#   docker-compose --profile native up
+#
+# Start only infrastructure (for local development):
+#   docker-compose up minio redpanda
+#
+# Access MinIO Console:
+#   http://localhost:9001 (minioadmin/minioadmin)
+#
+# Access Storage Service:
+#   http://localhost:8080/q/swagger-ui
