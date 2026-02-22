@@ -6,22 +6,38 @@ services:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      # Use the named volume defined below
       - rustfs_data:/data
     environment:
       RUSTFS_ACCESS_KEY: rustfsadmin
       RUSTFS_SECRET_KEY: rustfsadmin
       RUSTFS_CONSOLE_ENABLE: "true"
-      RUSTFS_SERVER_DOMAINS: example.com
+      RUSTFS_SERVER_DOMAINS: localhost
     command: >
-      --address :9000 
-      --console-enable 
-      --server-domains example.com 
-      --access-key rustfsadmin 
-      --secret-key rustfsadmin 
+      --address :9000
+      --console-enable
+      --server-domains localhost
+      --access-key rustfsadmin
+      --secret-key rustfsadmin
       /data
     restart: unless-stopped
 
-# Define the named volume
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: redpanda_container
+    ports:
+      - "19092:19092"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    command:
+      - redpanda
+      - start
+      - --kafka-addr=PLAINTEXT://0.0.0.0:19092
+      - --advertise-kafka-addr=PLAINTEXT://localhost:19092
+      - --smp=1
+      - --memory=512M
+      - --overprovisioned
+    restart: unless-stopped
+
 volumes:
   rustfs_data:
+  redpanda_data:

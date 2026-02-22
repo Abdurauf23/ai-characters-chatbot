@@ -1,6 +1,9 @@
 package com.chatbot.storage.server.event;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
 
@@ -8,13 +11,23 @@ import org.eclipse.microprofile.reactive.messaging.Emitter;
 public class StorageEventEmitter {
 
   @Channel("storage-events-out")
-  Emitter<Object> emitter;
+  Emitter<String> emitter;
 
-  public void fileCreated(FileEvent.FileCreated event) {
-    emitter.send(event);
+  @Inject ObjectMapper objectMapper;
+
+  public void fileCreated(FileCreated event) {
+    emitter.send(serialize(event));
   }
 
-  public void fileDeleted(FileEvent.FileDeleted event) {
-    emitter.send(event);
+  public void fileDeleted(FileDeleted event) {
+    emitter.send(serialize(event));
+  }
+
+  private String serialize(Object event) {
+    try {
+      return objectMapper.writeValueAsString(event);
+    } catch (JsonProcessingException e) {
+      throw new RuntimeException("Failed to serialize event", e);
+    }
   }
 }

@@ -2,10 +2,12 @@
 quarkus = "3.31.2"
 quarkus-amazon = "3.14.1"
 spotless = "8.2.1"
+openapi = "7.20.0"
 
 [plugins]
 quarkus = { id = "io.quarkus", version.ref = "quarkus" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+openapi = { id = "org.openapi.generator", version.ref = "openapi" }
 
 [libraries]
 quarkus-bom = { module = "io.quarkus.platform:quarkus-bom", version.ref = "quarkus" }
@@ -14,9 +16,7 @@ quarkus-amazon-bom = { module = "io.quarkiverse.amazonservices:quarkus-amazon-se
 # Quarkus extensions
 quarkus-config-yaml = { module = "io.quarkus:quarkus-config-yaml" }
 quarkus-rest-jackson = { module = "io.quarkus:quarkus-rest-jackson", version.ref = "quarkus" }
-quarkus-rest-client-jackson = { module = "io.quarkus:quarkus-rest-client-jackson" }
 quarkus-messaging-kafka = { module = "io.quarkus:quarkus-messaging-kafka", version.ref = "quarkus" }
-quarkus-smallrye-openapi = { module = "io.quarkus:quarkus-smallrye-openapi", version.ref = "quarkus" }
 quarkus-smallrye-fault-tolerance = { module = "io.quarkus:quarkus-smallrye-fault-tolerance", version.ref = "quarkus" }
 
 # Quarkiverse Amazon services
@@ -26,6 +26,8 @@ aws-url-connection-client = { module = "software.amazon.awssdk:url-connection-cl
 # Jakarta common
 jakarta-ws-rs-api = { module = "jakarta.ws.rs:jakarta.ws.rs-api", version = "4.0.0" }
 jakarta-annotation = { module = "jakarta.annotation:jakarta.annotation-api", version = "3.0.0" }
+jakarta-validation = { module = "jakarta.validation:jakarta.validation-api", version = "3.1.1" }
 
-# OpenAPI
-quarkus-openapi-generator = { module = "io.quarkiverse.openapi.generator:quarkus-openapi-generator", version = "2.14.0" }
+# Jackson
+jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version = "2.21" }
+jackson-databind-nullable = { module = "org.openapitools:jackson-databind-nullable", version = "0.2.9" }

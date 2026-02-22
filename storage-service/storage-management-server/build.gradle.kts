@@ -9,10 +9,11 @@ dependencies {
 
     implementation(libs.quarkus.rest.jackson)
     implementation(libs.quarkus.messaging.kafka)
-    implementation(libs.quarkus.smallrye.openapi)
     implementation(libs.quarkus.smallrye.fault.tolerance)
     implementation(libs.quarkus.amazon.s3)
 
     implementation(libs.quarkus.config.yaml)
     implementation(libs.aws.url.connection.client)
+
+    implementation(project(":storage-service:storage-client"))
 }

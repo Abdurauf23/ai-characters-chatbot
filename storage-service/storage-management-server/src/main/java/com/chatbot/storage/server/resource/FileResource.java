@@ -1,78 +1,33 @@
 package com.chatbot.storage.server.resource;
 
-import com.chatbot.storage.dto.FileDto;
-import com.chatbot.storage.dto.PresignedUrlDto;
-import com.chatbot.storage.event.FileEvent;
-import com.chatbot.storage.event.StorageEventEmitter;
-import com.chatbot.storage.service.StorageService;
-import com.chatbot.storage.service.StorageService.FileMeta;
-import com.chatbot.storage.service.StorageService.UploadResult;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.chatbot.storage.client.api.FilesApi;
+import com.chatbot.storage.client.model.FileResponse;
+import com.chatbot.storage.client.model.FileUploadResponse;
+import com.chatbot.storage.client.model.PresignedUrlResponse;
+import com.chatbot.storage.server.dto.PresignedUrlDto;
+import com.chatbot.storage.server.mapper.ResponseMapper;
+import com.chatbot.storage.server.model.FileMeta;
+import com.chatbot.storage.server.model.UploadResult;
+import com.chatbot.storage.server.service.StorageService;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.PATCH;
-import jakarta.ws.rs.POST;
-import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.QueryParam;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+
+import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.jboss.resteasy.reactive.RestForm;
-import org.jboss.resteasy.reactive.multipart.FileUpload;
 
-@Path("/v1/files")
-@Produces(MediaType.APPLICATION_JSON)
-public class FileResource {
+public class FileResource implements FilesApi {
 
   @Inject StorageService storage;
+  @Inject ResponseMapper responseMapper;
 
-  @Inject StorageEventEmitter events;
-
-  @Inject ObjectMapper objectMapper;
-
-  @POST
-  @Consumes(MediaType.MULTIPART_FORM_DATA)
-  public Response upload(@RestForm("file") FileUpload file, @RestForm("tags") String tagsJson)
-      throws Exception {
-    Map<String, String> tags = parseTags(tagsJson);
-    String filename = file.fileName();
-    String mimeType = file.contentType();
-    long size = file.size();
-
-    try (InputStream is = Files.newInputStream(file.uploadedFile())) {
-      UploadResult result = storage.upload(filename, mimeType, is, size, tags);
-
-      events.fileCreated(
-          new FileEvent.FileCreated(
-              result.fileId(),
-              filename,
-              result.objectKey(),
-              mimeType,
-              size,
-              OffsetDateTime.now(ZoneOffset.UTC)));
-
-      return Response.status(Response.Status.CREATED)
-          .entity(Map.of("fileId", result.fileId(), "objectKey", result.objectKey()))
-          .build();
-    }
-  }
-
-  @GET
-  @Path("/{fileId}")
-  @Produces(MediaType.APPLICATION_OCTET_STREAM)
-  public Response getFile(@PathParam("fileId") UUID fileId) {
+  public File getFile(UUID fileId) {
     FileMeta meta = storage.getFileMeta(fileId);
     InputStream stream = storage.download(fileId);
     return Response.ok(stream, meta.mimeType())
@@ -81,49 +36,33 @@ public class FileResource {
         .build();
   }
 
-  @DELETE
-  @Path("/{fileId}")
-  public Response deleteFile(@PathParam("fileId") UUID fileId) {
-    FileMeta meta = storage.getFileMeta(fileId);
+  public void deleteFile(@PathParam("fileId") UUID fileId) {
     storage.delete(fileId);
-
-    events.fileDeleted(
-        new FileEvent.FileDeleted(fileId, meta.objectKey(), OffsetDateTime.now(ZoneOffset.UTC)));
-
-    return Response.noContent().build();
   }
 
-  @GET
-  @Path("/{fileId}/presigned-url")
-  public PresignedUrlDto getPresignedUrl(@PathParam("fileId") UUID fileId) {
-    String url = storage.generatePresignedUrl(fileId);
-    return new PresignedUrlDto(url, OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
+  public PresignedUrlResponse getPresignedUrl(@PathParam("fileId") UUID fileId) {
+    PresignedUrlDto dto = storage.generatePresignedUrl(fileId);
+    return responseMapper.toPresignedUrlResponse(dto);
   }
 
-  @GET
-  @Path("/search")
-  public List<FileDto> searchFiles(
-      @QueryParam("prefix") String prefix,
-      @QueryParam("mimeType") String mimeType,
-      @QueryParam("limit") @DefaultValue("100") int limit) {
-    return storage.search(prefix, mimeType, limit).stream().map(FileDto::from).toList();
+  public List<FileResponse> searchFiles(String prefix, String mimeType, @DefaultValue("100") Integer limit) {
+    return storage.search(prefix, mimeType, limit).stream().map(FileResource::toFileResponse).toList();
   }
 
-  @PATCH
-  @Path("/{fileId}/metadata")
-  @Consumes(MediaType.APPLICATION_JSON)
-  public FileDto updateMetadata(@PathParam("fileId") UUID fileId, Map<String, String> tags) {
-    return FileDto.from(storage.updateTags(fileId, tags));
+  public FileResponse updateMetadata(
+      UUID fileId, Map<String, String> requestBody) {
+    return responseMapper.toFileResponse(storage.updateTags(fileId, requestBody));
   }
 
-  // --- Helpers ---
-
-  private Map<String, String> parseTags(String json) {
-    if (json == null || json.isBlank()) return Map.of();
-    try {
-      return objectMapper.readValue(json, new TypeReference<>() {});
-    } catch (Exception e) {
-      return Map.of();
+  public FileUploadResponse uploadFile(InputStream _fileInputStream, String filename, String contentType, String tags) {
+    try (InputStream is = Files.newInputStream(form._file.toPath())) {
+      UploadResult result =
+              storage.upload(form.filename, form.contentType, is, form._file.length(), form.tags);
+      return Response.status(Response.Status.CREATED)
+              .entity(new FileUploadResponse().fileId(result.fileId()).objectKey(result.objectKey()))
+              .build();
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to read uploaded file", e);
     }
   }
 }

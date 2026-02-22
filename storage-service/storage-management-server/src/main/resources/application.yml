@@ -27,19 +27,13 @@ storage:
   # S3-compatible endpoint configuration
   s3:
     endpoint: "http://localhost:9000"
-    access-key-id: "minioadmin"
-    secret-access-key: "minioadmin"
+    access-key-id: "rustfsadmin"
+    secret-access-key: "rustfsadmin"
     path-style-access: true
 
   # Presigned URL configuration
   presigned-url:
     expiration: "1h"
-
-  # Circuit breaker configuration
-  circuit-breaker:
-    request-volume-threshold: 4
-    delay: "5s"
-    success-threshold: 2
 
 # Kafka / Redpanda
 kafka:
@@ -53,4 +47,4 @@ mp:
         connector: "smallrye-kafka"
         topic: "storage.events"
         value:
-          serializer: "io.quarkus.kafka.client.serialization.ObjectMapperSerializer"
+          serializer: "org.apache.kafka.common.serialization.StringSerializer"

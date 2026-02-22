@@ -1,0 +1,1512 @@
+openapi: 3.0.3
+info:
+  title: File Storage Service API
+  description: |
+    Internal microservice for S3-compatible file storage (RustFS/MinIO).
+    Provides full file lifecycle management including upload, download, copy, move, 
+    bulk operations, presigned URLs, and metadata management.
+  version: 1.0.0
+
+servers:
+  - url: /api/v1
+    description: Base path
+
+tags:
+  - name: Files
+    description: Single file operations (upload, download, delete, metadata)
+  - name: Bulk
+    description: Bulk file operations
+  - name: Buckets
+    description: Bucket management
+  - name: Presigned
+    description: Presigned URL generation
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ── FILES ────────────────────────────────────────────────────────────────
+  /files/upload:
+    post:
+      tags: [Files]
+      operationId: uploadFile
+      summary: Upload a single file
+      description: |
+        Uploads a file to the specified bucket and object key.
+        If a file already exists at the given key, it will be overwritten 
+        unless `failIfExists` is set to true.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FileUploadRequest'
+      responses:
+        '201':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadataResponse'
+        '409':
+          description: File already exists (when failIfExists=true)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          description: File exceeds maximum allowed size
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/upload/base64:
+    post:
+      tags: [Files]
+      operationId: uploadFileBase64
+      summary: Upload a file as base64 encoded string
+      description: |
+        Uploads a file from a base64-encoded payload. Useful for service-to-service 
+        communication where multipart is inconvenient.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Base64UploadRequest'
+      responses:
+        '201':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadataResponse'
+        '409':
+          description: File already exists (when failIfExists=true)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          description: Decoded file exceeds maximum allowed size
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/download:
+    get:
+      tags: [Files]
+      operationId: downloadFile
+      summary: Download file as base64 with metadata
+      description: |
+        Returns the file content encoded as a base64 string along with 
+        full metadata (size, content type, ETags, custom tags, etc.).
+      parameters:
+        - $ref: '#/components/parameters/BucketParam'
+        - $ref: '#/components/parameters/ObjectKeyParam'
+        - name: versionId
+          in: query
+          required: false
+          description: Specific version to download (if versioning enabled)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File content with metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileDownloadResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/download/raw:
+    get:
+      tags: [Files]
+      operationId: downloadFileRaw
+      summary: Download file as raw binary stream
+      description: |
+        Returns the raw file bytes with appropriate Content-Type and 
+        Content-Disposition headers. Use for large files or browser downloads.
+      parameters:
+        - $ref: '#/components/parameters/BucketParam'
+        - $ref: '#/components/parameters/ObjectKeyParam'
+        - name: versionId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: inline
+          in: query
+          required: false
+          description: If true, sets Content-Disposition to inline (browser preview)
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Raw file content
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            ETag:
+              schema:
+                type: string
+            X-File-Version-Id:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/metadata:
+    get:
+      tags: [Files]
+      operationId: getFileMetadata
+      summary: Get file metadata without downloading content
+      parameters:
+        - $ref: '#/components/parameters/BucketParam'
+        - $ref: '#/components/parameters/ObjectKeyParam'
+        - name: versionId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadataResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/metadata/tags:
+    put:
+      tags: [Files]
+      operationId: updateFileTags
+      summary: Update custom tags on a file
+      description: Replaces all custom user tags on the specified object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTagsRequest'
+      responses:
+        '200':
+          description: Tags updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadataResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/exists:
+    get:
+      tags: [Files]
+      operationId: checkFileExists
+      summary: Check if a file exists
+      parameters:
+        - $ref: '#/components/parameters/BucketParam'
+        - $ref: '#/components/parameters/ObjectKeyParam'
+      responses:
+        '200':
+          description: Existence check result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileExistsResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files:
+    delete:
+      tags: [Files]
+      operationId: deleteFile
+      summary: Delete a single file
+      parameters:
+        - $ref: '#/components/parameters/BucketParam'
+        - $ref: '#/components/parameters/ObjectKeyParam'
+        - name: versionId
+          in: query
+          required: false
+          description: Delete a specific version (if versioning enabled)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/copy:
+    post:
+      tags: [Files]
+      operationId: copyFile
+      summary: Copy a file to a new location
+      description: |
+        Copies a file within the same bucket or across buckets. 
+        The original file is preserved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopyFileRequest'
+      responses:
+        '200':
+          description: File copied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadataResponse'
+        '404':
+          description: Source file not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Destination already exists (when failIfExists=true)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/move:
+    post:
+      tags: [Files]
+      operationId: moveFile
+      summary: Move (rename) a file
+      description: |
+        Moves a file to a new key/bucket. Implemented as copy + delete.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveFileRequest'
+      responses:
+        '200':
+          description: File moved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadataResponse'
+        '404':
+          description: Source file not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Destination already exists (when failIfExists=true)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/list:
+    get:
+      tags: [Files]
+      operationId: listFiles
+      summary: List files in a bucket with optional prefix filter
+      description: |
+        Paginated listing of files. Supports prefix filtering for 
+        virtual directory browsing and delimiter-based grouping.
+      parameters:
+        - $ref: '#/components/parameters/BucketParam'
+        - name: prefix
+          in: query
+          required: false
+          description: Filter by key prefix (e.g. `documents/2024/`)
+          schema:
+            type: string
+        - name: delimiter
+          in: query
+          required: false
+          description: Grouping delimiter (typically `/` for directory-like listing)
+          schema:
+            type: string
+            default: /
+        - name: continuationToken
+          in: query
+          required: false
+          description: Token for fetching the next page
+          schema:
+            type: string
+        - name: maxKeys
+          in: query
+          required: false
+          description: Maximum number of keys to return per page
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+        - name: recursive
+          in: query
+          required: false
+          description: If true, lists all objects recursively ignoring delimiter
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Paginated file list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileListResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/search:
+    post:
+      tags: [Files]
+      operationId: searchFiles
+      summary: Search files by metadata criteria
+      description: |
+        Search for files matching specific metadata criteria such as 
+        content type, size range, date range, and custom tags.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FileSearchRequest'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/versions:
+    get:
+      tags: [Files]
+      operationId: listFileVersions
+      summary: List all versions of a file
+      description: Returns all stored versions if bucket versioning is enabled.
+      parameters:
+        - $ref: '#/components/parameters/BucketParam'
+        - $ref: '#/components/parameters/ObjectKeyParam'
+      responses:
+        '200':
+          description: Version list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileVersionListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ── BULK OPERATIONS ──────────────────────────────────────────────────────
+  /bulk/upload:
+    post:
+      tags: [Bulk]
+      operationId: bulkUploadFiles
+      summary: Upload multiple files in a single request
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BulkUploadRequest'
+      responses:
+        '200':
+          description: Bulk upload results (partial success possible)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkOperationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /bulk/download:
+    post:
+      tags: [Bulk]
+      operationId: bulkDownloadFiles
+      summary: Download multiple files as base64 in one response
+      description: |
+        Returns multiple files with their base64-encoded content and metadata.
+        If a file is not found, it appears in the `failed` array.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkDownloadRequest'
+      responses:
+        '200':
+          description: Bulk download results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkDownloadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /bulk/download/zip:
+    post:
+      tags: [Bulk]
+      operationId: bulkDownloadAsZip
+      summary: Download multiple files as a ZIP archive
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkDownloadRequest'
+      responses:
+        '200':
+          description: ZIP archive
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /bulk/delete:
+    post:
+      tags: [Bulk]
+      operationId: bulkDeleteFiles
+      summary: Delete multiple files
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkDeleteRequest'
+      responses:
+        '200':
+          description: Bulk delete results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkOperationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /bulk/copy:
+    post:
+      tags: [Bulk]
+      operationId: bulkCopyFiles
+      summary: Copy multiple files to new locations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkCopyRequest'
+      responses:
+        '200':
+          description: Bulk copy results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkOperationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /bulk/move:
+    post:
+      tags: [Bulk]
+      operationId: bulkMoveFiles
+      summary: Move multiple files to new locations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkMoveRequest'
+      responses:
+        '200':
+          description: Bulk move results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkOperationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ── PRESIGNED URLs ───────────────────────────────────────────────────────
+  /presigned/download:
+    get:
+      tags: [Presigned]
+      operationId: generatePresignedDownloadUrl
+      summary: Generate a presigned download URL
+      description: |
+        Generates a time-limited URL that allows direct download from storage 
+        without going through this service. Useful for large files or client-side downloads.
+      parameters:
+        - $ref: '#/components/parameters/BucketParam'
+        - $ref: '#/components/parameters/ObjectKeyParam'
+        - name: expirationMinutes
+          in: query
+          required: false
+          description: URL validity in minutes
+          schema:
+            type: integer
+            default: 60
+            minimum: 1
+            maximum: 10080
+        - name: versionId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Presigned URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignedUrlResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /presigned/upload:
+    post:
+      tags: [Presigned]
+      operationId: generatePresignedUploadUrl
+      summary: Generate a presigned upload URL
+      description: |
+        Generates a time-limited URL that allows direct upload to storage.
+        Useful for large files or client-side uploads.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignedUploadRequest'
+      responses:
+        '200':
+          description: Presigned upload URL with form fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignedUploadResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ── BUCKETS ──────────────────────────────────────────────────────────────
+  /buckets:
+    get:
+      tags: [Buckets]
+      operationId: listBuckets
+      summary: List all buckets
+      responses:
+        '200':
+          description: Bucket list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BucketListResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [Buckets]
+      operationId: createBucket
+      summary: Create a new bucket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBucketRequest'
+      responses:
+        '201':
+          description: Bucket created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BucketResponse'
+        '409':
+          description: Bucket already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /buckets/{bucketName}:
+    get:
+      tags: [Buckets]
+      operationId: getBucketInfo
+      summary: Get bucket details
+      parameters:
+        - name: bucketName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Bucket info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BucketDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Buckets]
+      operationId: deleteBucket
+      summary: Delete a bucket
+      description: Bucket must be empty before deletion unless `forceDelete` is true.
+      parameters:
+        - name: bucketName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: forceDelete
+          in: query
+          required: false
+          description: Delete bucket even if it contains objects
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Bucket deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Bucket is not empty
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /buckets/{bucketName}/versioning:
+    put:
+      tags: [Buckets]
+      operationId: setBucketVersioning
+      summary: Enable or suspend versioning on a bucket
+      parameters:
+        - name: bucketName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BucketVersioningRequest'
+      responses:
+        '200':
+          description: Versioning updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BucketDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPONENTS
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+
+  # ── PARAMETERS ───────────────────────────────────────────────────────────
+  parameters:
+    BucketParam:
+      name: bucket
+      in: query
+      required: true
+      description: Target bucket name
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 63
+        pattern: '^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$'
+
+    ObjectKeyParam:
+      name: objectKey
+      in: query
+      required: true
+      description: Full object key (path) within the bucket
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 1024
+
+  # ── RESPONSES ────────────────────────────────────────────────────────────
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  # ── SCHEMAS ──────────────────────────────────────────────────────────────
+  schemas:
+
+    # ── Error ────────────────────────────────────────────────────────────
+    ErrorResponse:
+      type: object
+      required: [code, message, timestamp]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code
+          example: FILE_NOT_FOUND
+          enum:
+            - FILE_NOT_FOUND
+            - BUCKET_NOT_FOUND
+            - FILE_ALREADY_EXISTS
+            - BUCKET_ALREADY_EXISTS
+            - BUCKET_NOT_EMPTY
+            - FILE_TOO_LARGE
+            - INVALID_BUCKET_NAME
+            - INVALID_OBJECT_KEY
+            - INVALID_CONTENT_TYPE
+            - STORAGE_UNAVAILABLE
+            - VALIDATION_ERROR
+            - INTERNAL_ERROR
+        message:
+          type: string
+          description: Human-readable error description
+          example: "File not found at key: documents/report.pdf"
+        timestamp:
+          type: string
+          format: date-time
+        details:
+          type: object
+          additionalProperties:
+            type: string
+          description: Additional error context (field validations, etc.)
+          example:
+            bucket: "must match pattern '^[a-z0-9][a-z0-9.\\-]{1,61}[a-z0-9]$'"
+
+    # ── Upload Requests ──────────────────────────────────────────────────
+    FileUploadRequest:
+      type: object
+      required: [bucket, objectKey, file]
+      properties:
+        bucket:
+          type: string
+          minLength: 3
+          maxLength: 63
+        objectKey:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Full path/key for the object (e.g. `documents/2024/report.pdf`)
+        file:
+          type: string
+          format: binary
+          description: The file to upload
+        contentType:
+          type: string
+          description: Override auto-detected content type
+          example: application/pdf
+        tags:
+          type: string
+          description: JSON string of key-value tags (multipart limitation)
+          example: '{"department":"finance","confidential":"true"}'
+        failIfExists:
+          type: boolean
+          default: false
+          description: Return 409 if file already exists at this key
+
+    Base64UploadRequest:
+      type: object
+      required: [bucket, objectKey, content, fileName]
+      properties:
+        bucket:
+          type: string
+          minLength: 3
+          maxLength: 63
+        objectKey:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        fileName:
+          type: string
+          description: Original file name (used for content-type detection)
+          example: report.pdf
+        content:
+          type: string
+          format: byte
+          description: Base64-encoded file content
+        contentType:
+          type: string
+          description: MIME type (auto-detected from fileName if omitted)
+          example: application/pdf
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          description: Custom user-defined tags
+          example:
+            department: finance
+            year: "2024"
+        failIfExists:
+          type: boolean
+          default: false
+
+    # ── Metadata / Download Responses ────────────────────────────────────
+    FileMetadataResponse:
+      type: object
+      required:
+        - bucket
+        - objectKey
+        - fileName
+        - contentType
+        - sizeBytes
+        - etag
+        - lastModified
+        - createdAt
+        - storageClass
+      properties:
+        bucket:
+          type: string
+          example: documents
+        objectKey:
+          type: string
+          example: reports/2024/q1-summary.pdf
+        fileName:
+          type: string
+          description: Extracted file name from objectKey
+          example: q1-summary.pdf
+        contentType:
+          type: string
+          example: application/pdf
+        sizeBytes:
+          type: integer
+          format: int64
+          description: File size in bytes
+          example: 1048576
+        sizeHumanReadable:
+          type: string
+          description: Human-friendly file size
+          example: "1.00 MB"
+        etag:
+          type: string
+          description: Entity tag (MD5 hash for non-multipart uploads)
+          example: '"d41d8cd98f00b204e9800998ecf8427e"'
+        checksum:
+          $ref: '#/components/schemas/ChecksumInfo'
+        lastModified:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        versionId:
+          type: string
+          description: Object version ID (null if versioning disabled)
+        storageClass:
+          type: string
+          enum: [STANDARD, REDUCED_REDUNDANCY, GLACIER, DEEP_ARCHIVE]
+          default: STANDARD
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          description: Custom user-defined tags
+        serverSideEncryption:
+          type: string
+          description: Encryption algorithm used
+          example: AES256
+
+    FileDownloadResponse:
+      type: object
+      required: [metadata, content, encoding]
+      properties:
+        metadata:
+          $ref: '#/components/schemas/FileMetadataResponse'
+        content:
+          type: string
+          format: byte
+          description: Base64-encoded file content
+        encoding:
+          type: string
+          enum: [base64]
+          default: base64
+          description: Content encoding scheme
+
+    ChecksumInfo:
+      type: object
+      properties:
+        algorithm:
+          type: string
+          enum: [MD5, SHA1, SHA256, CRC32]
+          example: SHA256
+        value:
+          type: string
+          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+    # ── Exists ───────────────────────────────────────────────────────────
+    FileExistsResponse:
+      type: object
+      required: [bucket, objectKey, exists]
+      properties:
+        bucket:
+          type: string
+        objectKey:
+          type: string
+        exists:
+          type: boolean
+        metadata:
+          $ref: '#/components/schemas/FileMetadataResponse'
+          description: Present only if file exists
+
+    # ── Delete ───────────────────────────────────────────────────────────
+    DeleteResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+          example: "File deleted successfully"
+        deletedKey:
+          type: string
+        deletedVersionId:
+          type: string
+
+    # ── Tags ─────────────────────────────────────────────────────────────
+    UpdateTagsRequest:
+      type: object
+      required: [bucket, objectKey, tags]
+      properties:
+        bucket:
+          type: string
+        objectKey:
+          type: string
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          maxProperties: 10
+          description: |
+            Replaces all existing tags. Send empty object to clear all tags.
+          example:
+            department: finance
+            status: reviewed
+
+    # ── Copy / Move ──────────────────────────────────────────────────────
+    CopyFileRequest:
+      type: object
+      required: [sourceBucket, sourceKey, destinationBucket, destinationKey]
+      properties:
+        sourceBucket:
+          type: string
+        sourceKey:
+          type: string
+        destinationBucket:
+          type: string
+        destinationKey:
+          type: string
+        sourceVersionId:
+          type: string
+          description: Copy from a specific version
+        failIfExists:
+          type: boolean
+          default: false
+        copyTags:
+          type: boolean
+          default: true
+          description: Copy tags from source to destination
+
+    MoveFileRequest:
+      type: object
+      required: [sourceBucket, sourceKey, destinationBucket, destinationKey]
+      properties:
+        sourceBucket:
+          type: string
+        sourceKey:
+          type: string
+        destinationBucket:
+          type: string
+        destinationKey:
+          type: string
+        failIfExists:
+          type: boolean
+          default: false
+
+    # ── List / Search ────────────────────────────────────────────────────
+    FileListResponse:
+      type: object
+      required: [bucket, files, totalCount, truncated]
+      properties:
+        bucket:
+          type: string
+        prefix:
+          type: string
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileMetadataResponse'
+        commonPrefixes:
+          type: array
+          items:
+            type: string
+          description: |
+            Virtual "directories" when using delimiter-based listing.
+            E.g. ["documents/2024/", "documents/2025/"]
+        totalCount:
+          type: integer
+          description: Number of items in this page
+        truncated:
+          type: boolean
+          description: True if more results are available
+        continuationToken:
+          type: string
+          description: Token to fetch the next page (null if not truncated)
+
+    FileSearchRequest:
+      type: object
+      required: [bucket]
+      properties:
+        bucket:
+          type: string
+        prefix:
+          type: string
+          description: Key prefix filter
+        contentTypes:
+          type: array
+          items:
+            type: string
+          description: Filter by MIME types
+          example: [application/pdf, image/png]
+        minSizeBytes:
+          type: integer
+          format: int64
+        maxSizeBytes:
+          type: integer
+          format: int64
+        modifiedAfter:
+          type: string
+          format: date-time
+        modifiedBefore:
+          type: string
+          format: date-time
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          description: Filter by exact tag matches (AND logic)
+        maxKeys:
+          type: integer
+          default: 100
+          minimum: 1
+          maximum: 1000
+        continuationToken:
+          type: string
+
+    # ── Versions ─────────────────────────────────────────────────────────
+    FileVersionListResponse:
+      type: object
+      required: [bucket, objectKey, versions]
+      properties:
+        bucket:
+          type: string
+        objectKey:
+          type: string
+        versions:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileVersionInfo'
+
+    FileVersionInfo:
+      type: object
+      required: [versionId, lastModified, sizeBytes, isLatest]
+      properties:
+        versionId:
+          type: string
+        lastModified:
+          type: string
+          format: date-time
+        sizeBytes:
+          type: integer
+          format: int64
+        etag:
+          type: string
+        isLatest:
+          type: boolean
+        isDeleteMarker:
+          type: boolean
+          description: True if this version is a delete marker
+
+    # ── Bulk Operations ──────────────────────────────────────────────────
+    BulkUploadRequest:
+      type: object
+      required: [bucket, objectKeys, files]
+      properties:
+        bucket:
+          type: string
+        objectKeys:
+          type: array
+          items:
+            type: string
+          description: |
+            Ordered list of object keys, matching the order of uploaded files.
+        files:
+          type: array
+          items:
+            type: string
+            format: binary
+        failIfExists:
+          type: boolean
+          default: false
+
+    BulkDownloadRequest:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileReference'
+          minItems: 1
+          maxItems: 100
+
+    BulkDownloadResponse:
+      type: object
+      required: [successful, failed, totalRequested, totalSucceeded, totalFailed]
+      properties:
+        successful:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileDownloadResponse'
+        failed:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkItemError'
+        totalRequested:
+          type: integer
+        totalSucceeded:
+          type: integer
+        totalFailed:
+          type: integer
+
+    BulkDeleteRequest:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileReference'
+          minItems: 1
+          maxItems: 1000
+
+    BulkCopyRequest:
+      type: object
+      required: [operations]
+      properties:
+        operations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CopyFileRequest'
+          minItems: 1
+          maxItems: 100
+
+    BulkMoveRequest:
+      type: object
+      required: [operations]
+      properties:
+        operations:
+          type: array
+          items:
+            $ref: '#/components/schemas/MoveFileRequest'
+          minItems: 1
+          maxItems: 100
+
+    BulkOperationResponse:
+      type: object
+      required: [successful, failed, totalRequested, totalSucceeded, totalFailed]
+      properties:
+        successful:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkItemResult'
+        failed:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkItemError'
+        totalRequested:
+          type: integer
+        totalSucceeded:
+          type: integer
+        totalFailed:
+          type: integer
+
+    BulkItemResult:
+      type: object
+      required: [bucket, objectKey, status]
+      properties:
+        bucket:
+          type: string
+        objectKey:
+          type: string
+        status:
+          type: string
+          enum: [SUCCESS]
+        metadata:
+          $ref: '#/components/schemas/FileMetadataResponse'
+
+    BulkItemError:
+      type: object
+      required: [bucket, objectKey, errorCode, errorMessage]
+      properties:
+        bucket:
+          type: string
+        objectKey:
+          type: string
+        errorCode:
+          type: string
+        errorMessage:
+          type: string
+
+    FileReference:
+      type: object
+      required: [bucket, objectKey]
+      properties:
+        bucket:
+          type: string
+        objectKey:
+          type: string
+        versionId:
+          type: string
+
+    # ── Presigned URLs ───────────────────────────────────────────────────
+    PresignedUrlResponse:
+      type: object
+      required: [url, expiresAt, method]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The presigned URL
+        method:
+          type: string
+          enum: [GET, PUT]
+        bucket:
+          type: string
+        objectKey:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        expirationSeconds:
+          type: integer
+
+    PresignedUploadRequest:
+      type: object
+      required: [bucket, objectKey]
+      properties:
+        bucket:
+          type: string
+        objectKey:
+          type: string
+        contentType:
+          type: string
+          description: Expected content type of the upload
+        maxFileSizeBytes:
+          type: integer
+          format: int64
+          description: Maximum allowed upload size
+        expirationMinutes:
+          type: integer
+          default: 60
+          minimum: 1
+          maximum: 10080
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+
+    PresignedUploadResponse:
+      type: object
+      required: [url, method, expiresAt]
+      properties:
+        url:
+          type: string
+          format: uri
+        method:
+          type: string
+          enum: [PUT]
+          default: PUT
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Required headers for the upload request
+        bucket:
+          type: string
+        objectKey:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        expirationSeconds:
+          type: integer
+
+    # ── Buckets ──────────────────────────────────────────────────────────
+    CreateBucketRequest:
+      type: object
+      required: [bucketName]
+      properties:
+        bucketName:
+          type: string
+          minLength: 3
+          maxLength: 63
+          pattern: '^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$'
+        versioningEnabled:
+          type: boolean
+          default: false
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+
+    BucketResponse:
+      type: object
+      required: [name, createdAt]
+      properties:
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    BucketDetailResponse:
+      type: object
+      required: [name, createdAt, versioningStatus]
+      properties:
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        versioningStatus:
+          type: string
+          enum: [ENABLED, SUSPENDED, DISABLED]
+        objectCount:
+          type: integer
+          format: int64
+          description: Approximate number of objects
+        totalSizeBytes:
+          type: integer
+          format: int64
+          description: Approximate total size
+        totalSizeHumanReadable:
+          type: string
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+
+    BucketListResponse:
+      type: object
+      required: [buckets, totalCount]
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/BucketResponse'
+        totalCount:
+          type: integer
+
+    BucketVersioningRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ENABLED, SUSPENDED]
